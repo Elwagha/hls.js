@@ -8,7 +8,7 @@ import {
   KeyLoaderContext,
 } from '../types/loader';
 import { LoadError } from './fragment-loader';
-import type { HlsConfig } from '../hls';
+import type { HlsConfig } from '../config';
 import type { Fragment } from '../loader/fragment';
 import type { ComponentAPI } from '../types/component-api';
 import type { KeyLoadedData } from '../types/events';
@@ -92,7 +92,10 @@ export default class KeyLoader implements ComponentAPI {
       const { sn, cc } = loadingFrag;
       for (let i = 0; i < encryptedFragments.length; i++) {
         const frag = encryptedFragments[i];
-        if (cc <= frag.cc && (sn === 'initSegment' || sn < frag.sn)) {
+        if (
+          cc <= frag.cc &&
+          (sn === 'initSegment' || frag.sn === 'initSegment' || sn < frag.sn)
+        ) {
           this.emeController
             .selectKeySystemFormat(frag)
             .then((keySystemFormat) => {

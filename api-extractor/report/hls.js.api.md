@@ -392,7 +392,7 @@ export interface ErrorData {
         message: string;
     };
     // (undocumented)
-    error?: Error;
+    error: Error;
     // (undocumented)
     event?: keyof HlsListeners | 'demuxerWorker';
     // (undocumented)

@@ -374,11 +374,15 @@ class TSDemuxer implements Demuxer {
     }
 
     if (tsPacketErrors > 0) {
+      const error = new Error(
+        `Found ${tsPacketErrors} TS packet/s that do not start with 0x47`
+      );
       this.observer.emit(Events.ERROR, Events.ERROR, {
         type: ErrorTypes.MEDIA_ERROR,
         details: ErrorDetails.FRAG_PARSING_ERROR,
         fatal: false,
-        reason: `Found ${tsPacketErrors} TS packet/s that do not start with 0x47`,
+        error,
+        reason: error.message,
       });
     }
 
@@ -868,21 +872,24 @@ class TSDemuxer implements Demuxer {
     }
     // if ADTS header does not start straight from the beginning of the PES payload, raise an error
     if (offset !== startOffset) {
-      let reason;
+      let error: Error;
       let fatal;
       if (offset < len - 1) {
-        reason = `AAC PES did not start with ADTS header,offset:${offset}`;
+        error = new Error(
+          `AAC PES did not start with ADTS header,offset:${offset}`
+        );
         fatal = false;
       } else {
-        reason = 'no ADTS header found in AAC PES';
+        error = new Error('No ADTS header found in AAC PES');
         fatal = true;
       }
-      logger.warn(`parsing error:${reason}`);
+      logger.warn(`[tsdemuxer]: Parsing error: ${error.message}`);
       this.observer.emit(Events.ERROR, Events.ERROR, {
         type: ErrorTypes.MEDIA_ERROR,
         details: ErrorDetails.FRAG_PARSING_ERROR,
         fatal,
-        reason,
+        error,
+        reason: error.message,
       });
       if (fatal) {
         return;

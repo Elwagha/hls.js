@@ -768,6 +768,7 @@ export default class BaseStreamController
         type: ErrorTypes.OTHER_ERROR,
         details: ErrorDetails.INTERNAL_EXCEPTION,
         err: error,
+        error,
         fatal: true,
       });
     }

@@ -221,11 +221,13 @@ export default class Transmuxer {
     const { demuxer, remuxer } = this;
     if (!demuxer || !remuxer) {
       // If probing failed, then Hls.js has been given content its not able to handle
+      const error = new Error('no demux matching with content found');
       this.observer.emit(Events.ERROR, Events.ERROR, {
         type: ErrorTypes.MEDIA_ERROR,
         details: ErrorDetails.FRAG_PARSING_ERROR,
         fatal: true,
-        reason: 'no demux matching with content found',
+        error,
+        reason: error.message,
       });
       stats.executeEnd = now();
       return [emptyResult(chunkMeta)];

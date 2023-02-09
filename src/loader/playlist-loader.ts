@@ -467,32 +467,6 @@ class PlaylistLoader implements NetworkComponentAPI {
       this.variableList
     );
 
-    const error = levelDetails.playlistParsingError;
-    if (error) {
-      hls.trigger(Events.ERROR, {
-        type: ErrorTypes.NETWORK_ERROR,
-        details: ErrorDetails.LEVEL_PARSING_ERROR,
-        fatal: false,
-        url: url,
-        err: error,
-        error,
-        reason: error.message,
-        level: typeof context.level === 'number' ? context.level : undefined,
-      });
-      return;
-    }
-    if (!levelDetails.fragments.length) {
-      hls.trigger(Events.ERROR, {
-        type: ErrorTypes.NETWORK_ERROR,
-        details: ErrorDetails.LEVEL_EMPTY_ERROR,
-        fatal: false,
-        url: url,
-        reason: 'no fragments found in level',
-        level: typeof context.level === 'number' ? context.level : undefined,
-      });
-      return;
-    }
-
     // We have done our first request (Manifest-type) and receive
     // not a master playlist but a chunk-list (track/level)
     // We fire the manifest-loaded event anyway with the parsed level-details
@@ -526,7 +500,13 @@ class PlaylistLoader implements NetworkComponentAPI {
     // extend the context with the new levelDetails property
     context.levelDetails = levelDetails;
 
-    this.handlePlaylistLoaded(response, stats, context, networkDetails);
+    this.handlePlaylistLoaded(
+      levelDetails,
+      response,
+      stats,
+      context,
+      networkDetails
+    );
   }
 
   private handleManifestParsingError(
@@ -555,13 +535,19 @@ class PlaylistLoader implements NetworkComponentAPI {
     timeout = false,
     response?: LoaderResponse
   ): void {
-    logger.warn(
-      `[playlist-loader]: A network ${
-        timeout ? 'timeout' : 'error'
-      } occurred while loading ${context.type} level: ${context.level} id: ${
-        context.id
-      } group-id: "${context.groupId}"`
-    );
+    let message = `A network ${
+      timeout ? 'timeout' : 'error'
+    } occurred while loading ${context.type}`;
+    if (context.type === PlaylistContextType.LEVEL) {
+      message += `: ${context.level} id: ${context.id}`;
+    } else if (
+      context.type === PlaylistContextType.AUDIO_TRACK ||
+      context.type === PlaylistContextType.SUBTITLE_TRACK
+    ) {
+      message += ` id: ${context.id} group-id: "${context.groupId}"`;
+    }
+    const error = new Error(message);
+    logger.warn(`[playlist-loader]: ${message}`);
     let details = ErrorDetails.UNKNOWN;
     let fatal = false;
 
@@ -605,6 +591,7 @@ class PlaylistLoader implements NetworkComponentAPI {
       url: context.url,
       loader,
       context,
+      error,
       networkDetails,
     };
 
@@ -616,28 +603,69 @@ class PlaylistLoader implements NetworkComponentAPI {
   }
 
   private handlePlaylistLoaded(
+    levelDetails: LevelDetails,
     response: LoaderResponse,
     stats: LoaderStats,
     context: PlaylistLoaderContext,
     networkDetails: any
   ): void {
-    const {
-      type,
-      level,
-      id,
-      groupId,
-      loader,
-      levelDetails,
-      deliveryDirectives,
-    } = context;
+    const hls = this.hls;
+    const { type, level, id, groupId, loader, deliveryDirectives } = context;
 
-    if (!levelDetails?.targetduration) {
-      this.handleManifestParsingError(
+    const url = getResponseUrl(response, context);
+    const parent = mapContextToLevelType(context);
+    const levelIndex =
+      typeof context.level === 'number' && parent === PlaylistLevelType.MAIN
+        ? (level as number)
+        : undefined;
+
+    const error = levelDetails.playlistParsingError;
+    if (error) {
+      hls.trigger(Events.ERROR, {
+        type: ErrorTypes.NETWORK_ERROR,
+        details: ErrorDetails.LEVEL_PARSING_ERROR,
+        fatal: false,
+        url,
+        error,
+        reason: error.message,
         response,
         context,
-        new Error('invalid target duration'),
-        networkDetails
-      );
+        level: levelIndex,
+        parent,
+      });
+      return;
+    }
+    if (!levelDetails.targetduration) {
+      const error = new Error('Missing Target Duration');
+      hls.trigger(Events.ERROR, {
+        type: ErrorTypes.NETWORK_ERROR,
+        details: ErrorDetails.LEVEL_PARSING_ERROR,
+        fatal: false,
+        url,
+        error,
+        reason: error.message,
+        response,
+        context,
+        level: levelIndex,
+        parent,
+        networkDetails,
+      });
+      return;
+    }
+    if (!levelDetails.fragments.length) {
+      const error = new Error('No Segments found in Playlist');
+      hls.trigger(Events.ERROR, {
+        type: ErrorTypes.NETWORK_ERROR,
+        details: ErrorDetails.LEVEL_EMPTY_ERROR,
+        fatal: false,
+        url,
+        error,
+        reason: error.message,
+        response,
+        context,
+        level: levelIndex,
+        parent,
+      });
       return;
     }
     if (!loader) {
@@ -656,9 +684,9 @@ class PlaylistLoader implements NetworkComponentAPI {
     switch (type) {
       case PlaylistContextType.MANIFEST:
       case PlaylistContextType.LEVEL:
-        this.hls.trigger(Events.LEVEL_LOADED, {
+        hls.trigger(Events.LEVEL_LOADED, {
           details: levelDetails,
-          level: level || 0,
+          level: levelIndex || 0,
           id: id || 0,
           stats,
           networkDetails,
@@ -666,7 +694,7 @@ class PlaylistLoader implements NetworkComponentAPI {
         });
         break;
       case PlaylistContextType.AUDIO_TRACK:
-        this.hls.trigger(Events.AUDIO_TRACK_LOADED, {
+        hls.trigger(Events.AUDIO_TRACK_LOADED, {
           details: levelDetails,
           id: id || 0,
           groupId: groupId || '',
@@ -676,7 +704,7 @@ class PlaylistLoader implements NetworkComponentAPI {
         });
         break;
       case PlaylistContextType.SUBTITLE_TRACK:
-        this.hls.trigger(Events.SUBTITLE_TRACK_LOADED, {
+        hls.trigger(Events.SUBTITLE_TRACK_LOADED, {
           details: levelDetails,
           id: id || 0,
           groupId: groupId || '',

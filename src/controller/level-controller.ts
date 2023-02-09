@@ -131,7 +131,7 @@ export default class LevelController extends BasePlaylistController {
         SUBTITLES,
       } = attributes;
       const contentSteeringPrefix = __USE_CONTENT_STEERING__
-        ? `${PATHWAY}-`
+        ? `${PATHWAY || '.'}-`
         : '';
       const levelKey = `${contentSteeringPrefix}${levelParsed.bitrate}-${RESOLUTION}-${FRAMERATE}-${CODECS}`;
       levelFromSet = levelSet[levelKey];
@@ -151,7 +151,10 @@ export default class LevelController extends BasePlaylistController {
     this.filterAndSortMediaOptions(levels, data);
   }
 
-  private filterAndSortMediaOptions(levels: Level[], data: ManifestLoadedData) {
+  private filterAndSortMediaOptions(
+    unfilteredLevels: Level[],
+    data: ManifestLoadedData
+  ) {
     let audioTracks: MediaPlaylist[] = [];
     let subtitleTracks: MediaPlaylist[] = [];
 
@@ -160,15 +163,18 @@ export default class LevelController extends BasePlaylistController {
     let audioCodecFound = false;
 
     // only keep levels with supported audio/video codecs
-    levels = levels.filter(({ audioCodec, videoCodec, width, height }) => {
-      resolutionFound ||= !!(width && height);
-      videoCodecFound ||= !!videoCodec;
-      audioCodecFound ||= !!audioCodec;
-      return (
-        (!audioCodec || isCodecSupportedInMp4(audioCodec, 'audio')) &&
-        (!videoCodec || isCodecSupportedInMp4(videoCodec, 'video'))
-      );
-    });
+    let levels = unfilteredLevels.filter(
+      ({ audioCodec, videoCodec, width, height, unknownCodecs }) => {
+        resolutionFound ||= !!(width && height);
+        videoCodecFound ||= !!videoCodec;
+        audioCodecFound ||= !!audioCodec;
+        return (
+          (!unknownCodecs || !unknownCodecs.length) &&
+          (!audioCodec || isCodecSupportedInMp4(audioCodec, 'audio')) &&
+          (!videoCodec || isCodecSupportedInMp4(videoCodec, 'video'))
+        );
+      }
+    );
 
     // remove audio-only level if we also have levels with video codecs or RESOLUTION signalled
     if ((resolutionFound || videoCodecFound) && audioCodecFound) {
@@ -178,12 +184,16 @@ export default class LevelController extends BasePlaylistController {
     }
 
     if (levels.length === 0) {
+      const error = new Error(
+        'no level with compatible codecs found in manifest'
+      );
       this.hls.trigger(Events.ERROR, {
         type: ErrorTypes.MEDIA_ERROR,
         details: ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR,
         fatal: true,
         url: data.url,
-        reason: 'no level with compatible codecs found in manifest',
+        error,
+        reason: error.message,
       });
       return;
     }
@@ -299,13 +309,15 @@ export default class LevelController extends BasePlaylistController {
     // check if level idx is valid
     if (newLevel < 0 || newLevel >= levels.length) {
       // invalid level id given, trigger error
+      const error = new Error('invalid level idx');
       const fatal = newLevel < 0;
       this.hls.trigger(Events.ERROR, {
         type: ErrorTypes.OTHER_ERROR,
         details: ErrorDetails.LEVEL_SWITCH_ERROR,
         level: newLevel,
         fatal,
-        reason: 'invalid level idx',
+        error,
+        reason: error.message,
       });
       if (fatal) {
         return;
@@ -402,7 +414,6 @@ export default class LevelController extends BasePlaylistController {
   }
 
   protected onError(event: Events.ERROR, data: ErrorData) {
-    super.onError(event, data);
     if (data.fatal) {
       return;
     }
@@ -466,7 +477,6 @@ export default class LevelController extends BasePlaylistController {
         }
       }
       // eslint-disable-next-line no-fallthrough
-      case ErrorDetails.LEVEL_PARSING_ERROR:
       case ErrorDetails.FRAG_PARSING_ERROR:
       case ErrorDetails.KEY_SYSTEM_NO_SESSION:
         levelIndex =
@@ -475,6 +485,18 @@ export default class LevelController extends BasePlaylistController {
             : this.currentLevelIndex;
         // Do not retry level. Escalate to fatal if switching levels fails.
         data.levelRetry = false;
+        break;
+      case ErrorDetails.LEVEL_EMPTY_ERROR:
+      case ErrorDetails.LEVEL_PARSING_ERROR:
+        levelIndex =
+          data.parent === PlaylistLevelType.MAIN
+            ? data.level
+            : this.currentLevelIndex;
+        // Do not retry level unless empty and live. Escalate to fatal if switching levels fails.
+        data.levelRetry =
+          data.details === ErrorDetails.LEVEL_EMPTY_ERROR &&
+          data.context?.levelDetails?.live;
+        levelError = !!data.levelRetry;
         break;
       case ErrorDetails.LEVEL_LOAD_ERROR:
       case ErrorDetails.LEVEL_LOAD_TIMEOUT:
@@ -510,7 +532,13 @@ export default class LevelController extends BasePlaylistController {
     levelSwitch: boolean
   ): void {
     const { details: errorDetails } = errorEvent;
-    const level = this._levels[levelIndex];
+    const level = this._levels[levelIndex] as Level | undefined;
+    if (!level) {
+      this.warn(
+        `Cannot recover with invalid level index ${levelIndex}. Error: ${errorEvent}`
+      );
+      return;
+    }
 
     level.loadError++;
 
@@ -547,9 +575,10 @@ export default class LevelController extends BasePlaylistController {
           }
         }
         if (nextLevel > -1 && this.currentLevelIndex !== nextLevel) {
-          this.warn(`${errorDetails}: switch to ${nextLevel}`);
+          this.warn(`${errorDetails}: switching to ${nextLevel}`);
           errorEvent.levelRetry = true;
-          this.hls.nextAutoLevel = nextLevel;
+          // TODO: This recovery should happen onErrorOut
+          this.hls.nextLoadLevel = nextLevel;
         } else if (errorEvent.levelRetry === false) {
           // No levels to switch to and no more retries
           errorEvent.fatal = true;

@@ -227,7 +227,7 @@ export interface ErrorData {
   bytes?: number;
   chunkMeta?: ChunkMetadata;
   context?: PlaylistLoaderContext;
-  error?: Error;
+  error: Error;
   event?: keyof HlsListeners | 'demuxerWorker';
   frag?: Fragment;
   level?: number | undefined;

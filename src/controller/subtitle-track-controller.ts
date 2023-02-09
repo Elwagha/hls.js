@@ -242,7 +242,6 @@ class SubtitleTrackController extends BasePlaylistController {
   }
 
   protected onError(event: Events.ERROR, data: ErrorData): void {
-    super.onError(event, data);
     if (data.fatal || !data.context) {
       return;
     }

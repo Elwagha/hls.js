@@ -1,5 +1,6 @@
 import * as URLToolkit from 'url-toolkit';
 import PlaylistLoader from './loader/playlist-loader';
+import ErrorController from './controller/error-controller';
 import ID3TrackController from './controller/id3-track-controller';
 import LatencyController from './controller/latency-controller';
 import LevelController from './controller/level-controller';
@@ -12,6 +13,7 @@ import { enableStreamingMode, hlsDefaultConfig, mergeConfig } from './config';
 import { EventEmitter } from 'eventemitter3';
 import { Events } from './events';
 import { ErrorTypes, ErrorDetails } from './errors';
+import { HdcpLevels } from './types/level';
 import type { HlsEventEmitter, HlsListeners } from './events';
 import type AudioTrackController from './controller/audio-track-controller';
 import type AbrController from './controller/abr-controller';
@@ -21,10 +23,9 @@ import type CMCDController from './controller/cmcd-controller';
 import type EMEController from './controller/eme-controller';
 import type SubtitleTrackController from './controller/subtitle-track-controller';
 import type { ComponentAPI, NetworkComponentAPI } from './types/component-api';
-import type { MediaAttributes, MediaPlaylist } from './types/media-playlist';
+import type { MediaPlaylist } from './types/media-playlist';
 import type { HlsConfig } from './config';
-import { HdcpLevel, HdcpLevels, Level } from './types/level';
-import type { Fragment } from './loader/fragment';
+import type { HdcpLevel, Level } from './types/level';
 import type { BufferInfo } from './utils/buffer-helper';
 
 /**
@@ -128,6 +129,7 @@ export default class Hls implements HlsEventEmitter {
       capLevelController: ConfigCapLevelController,
       fpsController: ConfigFpsController,
     } = config;
+    const errorController = new ErrorController(this);
     const abrController = (this.abrController = new ConfigAbrController(this));
     const bufferController = (this.bufferController =
       new ConfigBufferController(this));
@@ -178,6 +180,7 @@ export default class Hls implements HlsEventEmitter {
       fpsController,
       id3TrackController,
       fragmentTracker,
+      errorController,
     ];
 
     this.audioTrackController = this.createController(
@@ -216,6 +219,10 @@ export default class Hls implements HlsEventEmitter {
     );
 
     this.coreComponents = coreComponents;
+
+    // Error controller handles errors before and after all other controllers
+    // This listener will be invoked after all other controllers error listeners
+    this.on(Events.ERROR, errorController.onErrorOut, errorController);
   }
 
   createController(ControllerClass, components) {
@@ -848,7 +855,6 @@ export default class Hls implements HlsEventEmitter {
 }
 
 export type {
-  MediaAttributes,
   MediaPlaylist,
   ErrorDetails,
   ErrorTypes,
@@ -857,7 +863,6 @@ export type {
   HlsListeners,
   HlsEventEmitter,
   HlsConfig,
-  Fragment,
   BufferInfo,
   HdcpLevels,
   HdcpLevel,
@@ -927,6 +932,7 @@ export type {
   LoaderOnTimeout,
 } from './types/loader';
 export type {
+  MediaAttributes,
   MediaPlaylistType,
   MainPlaylistType,
   AudioPlaylistType,
@@ -936,6 +942,7 @@ export type { Track, TrackSet } from './types/track';
 export type { ChunkMetadata } from './types/transmuxer';
 export type {
   BaseSegment,
+  Fragment,
   Part,
   ElementaryStreams,
   ElementaryStreamTypes,

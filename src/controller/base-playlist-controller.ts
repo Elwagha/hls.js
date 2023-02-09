@@ -35,16 +35,6 @@ export default class BasePlaylistController implements NetworkComponentAPI {
     this.hls = this.log = this.warn = null;
   }
 
-  protected onError(event: Events.ERROR, data: ErrorData): void {
-    if (
-      data.fatal &&
-      (data.type === ErrorTypes.NETWORK_ERROR ||
-        data.type === ErrorTypes.KEY_SYSTEM_ERROR)
-    ) {
-      this.stopLoad();
-    }
-  }
-
   protected clearTimer(): void {
     clearTimeout(this.timer);
     this.timer = -1;
